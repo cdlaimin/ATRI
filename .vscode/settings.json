@@ -1,0 +1,14 @@
+{
+    "python.formatting.provider": "black",
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.logLevel": "Trace",
+    "cSpell.words": [
+        "ATRI",
+        "CQHTTP",
+        "gocq",
+        "nonebot",
+        "onebot",
+        "webui"
+    ],
+}

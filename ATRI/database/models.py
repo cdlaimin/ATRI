@@ -1,22 +1,84 @@
-"""
-    定义SQLITE数据库的关系模式（表）
-    数据库采用了tortoise orm，可以很好地支持异步
-"""
-
-from tortoise.models import Model
-from tortoise import fields
 from datetime import datetime
 
-# b站订阅表
-class Subscription(Model):
-    uid = fields.IntField(pk=True)  # up的uid
-    groupid = fields.IntField()  # 群号
-    nickname = fields.TextField(null=True)  # 订阅up的名称
-    last_update = fields.DatetimeField(
-        default=datetime.fromordinal(1)
-    )  # 上一条动态更新时间 默认0001-01-01 00:00:00
+from tortoise import fields
+from tortoise.models import Model
 
-    def __str__(self):
-        return "[{nickname}|{uid}|{groupid}]".format(
-            nickname=self.nickname, uid=self.uid, groupid=self.groupid
-        )
+
+class BilibiliSubscription(Model):
+    uid = fields.IntField()
+    group_id = fields.IntField()
+    up_nickname = fields.TextField(null=True)
+    last_update = fields.DatetimeField(default=datetime.fromordinal(1))
+
+    class Meta:
+        app = "bilibili"
+
+
+class TwitterSubscription(Model):
+    tid = fields.IntField()
+    group_id = fields.IntField()
+    name = fields.TextField(null=True)
+    screen_name = fields.TextField(null=True)
+    last_update = fields.DatetimeField(default=datetime.fromordinal(1))
+
+    class Meta:
+        app = "twitter"
+
+
+class ThesaurusStoragor(Model):
+    _id = fields.TextField()
+    matcher = fields.TextField(null=True)
+    result = fields.JSONField(null=True)
+    need_at = fields.IntField(null=True)
+    m_type = fields.IntField(null=True)
+    group_id = fields.IntField(null=True)
+    operator = fields.TextField(null=True)
+    operator_id = fields.IntField(null=True)
+    update_time = fields.DatetimeField(null=True)
+    is_vote = fields.IntField(null=True)
+    vote_list = fields.JSONField(null=True)
+
+    class Meta:
+        app = "ts"
+
+
+class ThesaurusAuditList(Model):
+    _id = fields.TextField()
+    matcher = fields.TextField(null=True)
+    result = fields.JSONField(null=True)
+    need_at = fields.IntField(null=True)
+    m_type = fields.IntField(null=True)
+    group_id = fields.IntField(null=True)
+    operator = fields.TextField(null=True)
+    operator_id = fields.IntField(null=True)
+    update_time = fields.DatetimeField(null=True)
+    is_vote = fields.IntField(null=True)
+    vote_list = fields.JSONField(null=True)
+
+    class Meta:
+        app = "tal"
+
+
+class RssRsshubSubcription(Model):
+    _id = fields.TextField()
+    group_id = fields.IntField(null=True)
+    title = fields.TextField(null=True)
+    raw_link = fields.TextField(null=True)
+    rss_link = fields.TextField(null=True)
+    discription = fields.TextField(null=True)
+    update_time = fields.DatetimeField(default=datetime.fromordinal(1))
+
+    class Meta:
+        app = "rrs"
+
+
+class RssMikananiSubcription(Model):
+    _id = fields.TextField()
+    group_id = fields.IntField(null=True)
+    title = fields.TextField(null=True)
+    rss_link = fields.TextField(null=True)
+    discription = fields.TextField(null=True)
+    update_time = fields.DatetimeField(default=datetime.fromordinal(1))
+
+    class Meta:
+        app = "rms"

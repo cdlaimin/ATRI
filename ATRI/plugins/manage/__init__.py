@@ -1,431 +1,356 @@
 import re
+from datetime import datetime
+from typing import Type, Callable
+from asyncio import iscoroutinefunction
 
-from nonebot.permission import SUPERUSER
 from nonebot.matcher import Matcher
 from nonebot.params import ArgPlainText, CommandArg
-from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent
-from nonebot.adapters.onebot.v11 import GROUP_OWNER, GROUP_ADMIN
+from nonebot.adapters.onebot.v11 import (
+    Bot,
+    Message,
+    MessageEvent,
+    FriendRequestEvent,
+    GroupRequestEvent,
+)
 
-from .data_source import Manage
+from ATRI.rule import to_bot
+from ATRI.service import Service
+from ATRI.message import MessageBuilder
+from ATRI.permission import MASTER, ADMIN
 
-
-block_user = Manage().on_command("封禁用户", "对目标用户进行封禁", permission=SUPERUSER)
-
-
-@block_user.handle()
-async def _ready_block_user(matcher: Matcher, args: Message = CommandArg()):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("block_user", args)
-
-
-@block_user.got("block_user", "哪位？GKD！")
-async def _deal_block_user(user_id: str = ArgPlainText("block_user")):
-    quit_list = ["算了", "罢了"]
-    if user_id in quit_list:
-        await block_user.finish("...看来有人逃过一劫呢")
-
-    is_ok = Manage().block_user(user_id)
-    if not is_ok:
-        await block_user.finish("kuso！封禁失败了...")
-
-    await block_user.finish(f"用户 {user_id} 危！")
+from .models import RequestInfo
+from .data_source import BotManager
+from .plugin import NonebotPluginManager
 
 
-unblock_user = Manage().on_command("解封用户", "对目标用户进行解封", permission=SUPERUSER)
+_QUIT_ARGS = ["算了", "罢了"]
 
 
-@unblock_user.handle()
-async def _ready_unblock_user(matcher: Matcher, args: Message = CommandArg()):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("unblock_user", args)
-
-
-@unblock_user.got("unblock_user", "哪位？GKD！")
-async def _deal_unblock_user(user_id: str = ArgPlainText("unblock_user")):
-    quit_list = ["算了", "罢了"]
-    if user_id in quit_list:
-        await unblock_user.finish("...有人又得继续在小黑屋呆一阵子了")
-
-    is_ok = Manage().unblock_user(user_id)
-    if not is_ok:
-        await unblock_user.finish("kuso！解封失败了...")
-
-    await unblock_user.finish(f"好欸！{user_id} 重获新生！")
-
-
-block_group = Manage().on_command("封禁群", "对目标群进行封禁", permission=SUPERUSER)
-
-
-@block_group.handle()
-async def _ready_block_group(matcher: Matcher, args: Message = CommandArg()):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("block_group", args)
-
-
-@block_group.got("block_group", "哪个群？GKD！")
-async def _deal_block_group(group_id: str = ArgPlainText("block_group")):
-    quit_list = ["算了", "罢了"]
-    if group_id in quit_list:
-        await block_group.finish("...看来有一群逃过一劫呢")
-
-    is_ok = Manage().block_group(group_id)
-    if not is_ok:
-        await block_group.finish("kuso！封禁失败了...")
-
-    await block_group.finish(f"群 {group_id} 危！")
-
-
-unblock_group = Manage().on_command("解封群", "对目标群进行解封", permission=SUPERUSER)
-
-
-@unblock_group.handle()
-async def _ready_unblock_group(matcher: Matcher, args: Message = CommandArg()):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("unblock_group", args)
-
-
-@unblock_group.got("unblock_group", "哪个群？GKD！")
-async def _deal_unblock_group(group_id: str = ArgPlainText("unblock_group")):
-    quit_list = ["算了", "罢了"]
-    if group_id in quit_list:
-        await unblock_group.finish("...有一群又得继续在小黑屋呆一阵子了")
-
-    is_ok = Manage().unblock_group(group_id)
-    if not is_ok:
-        await unblock_group.finish("kuso！解封失败了...")
-
-    await unblock_group.finish(f"好欸！群 {group_id} 重获新生！")
-
-
-global_block_service = Manage().on_command("全局禁用", "全局禁用某服务", permission=SUPERUSER)
-
-
-@global_block_service.handle()
-async def _ready_block_service(matcher: Matcher, args: Message = CommandArg()):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("global_block_service", args)
-
-
-@global_block_service.got("global_block_service", "阿...是哪个服务呢")
-async def _deal_global_block_service(
-    block_service: str = ArgPlainText("global_block_service"),
+def handle_command(
+    plugin: Type[Matcher],
+    func: Callable,
+    success_msg: str,
+    fail_msg: str = "操作 {} 失败...原因：\n{}",
 ):
-    quit_list = ["算了", "罢了"]
-    if block_service in quit_list:
-        await global_block_service.finish("好吧...")
+    @plugin.handle()
+    async def handle_command(matcher: Matcher, args: Message = CommandArg()):
+        msg = args.extract_plain_text()
+        if msg:
+            matcher.set_arg("target", args)
 
-    is_ok = Manage().control_global_service(block_service, False)
-    if not is_ok:
-        await global_block_service.finish("kuso！禁用失败了...")
+    @plugin.got("target", "要操作的目标是？")
+    async def handle_target(event: MessageEvent, target: str = ArgPlainText("target")):
+        if target in _QUIT_ARGS:
+            await plugin.finish("好吧")
 
-    await global_block_service.finish(f"服务 {block_service} 已被禁用")
-
-
-global_unblock_service = Manage().on_command("全局启用", "全局启用某服务", permission=SUPERUSER)
-
-
-@global_unblock_service.handle()
-async def _ready_unblock_service(
-    matcher: Matcher, event: MessageEvent, args: Message = CommandArg()
-):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("global_unblock_service", args)
-
-
-@global_unblock_service.got("global_unblock_service", "阿...是哪个服务呢")
-async def _deal_global_unblock_service(
-    unblock_service: str = ArgPlainText("global_unblock_service"),
-):
-    quit_list = ["算了", "罢了"]
-    if unblock_service in quit_list:
-        await global_unblock_service.finish("好吧...")
-
-    is_ok = Manage().control_global_service(unblock_service, True)
-    if not is_ok:
-        await global_unblock_service.finish("kuso！启用服务失败了...")
-
-    await global_unblock_service.finish(f"服务 {unblock_service} 已启用")
+        try:
+            func_argcount = func.__code__.co_argcount
+            if iscoroutinefunction(func):
+                if func_argcount == 3:
+                    result = await func(target, event)
+                else:
+                    result = await func(target)
+            else:
+                if func_argcount == 3:
+                    result = func(target, event)
+                else:
+                    result = func(target)
+            msg = success_msg.format(target)
+            if type(result) == bool:
+                msg += "启用" if result else "禁用"
+            if type(result) == str:
+                msg = result
+            await plugin.send(msg)
+        except Exception as e:
+            error_msg = str(e)
+            await plugin.send(fail_msg.format(target, error_msg))
 
 
-user_block_service = Manage().on_regex(
-    r"对用户(.*?)禁用(.*)", "针对某一用户禁用服务", permission=SUPERUSER
+plugin = Service("管理").document("控制 ATRI 的各项服务").only_admin(True).permission(MASTER)
+
+
+block_user = plugin.on_command("封禁用户", "阻止目标用户使用 ATRI")
+handle_command(block_user, BotManager().block_user, "用户 {} 危！")
+
+
+unblock_user = plugin.on_command("解封用户", "对被阻止的用户解封")
+handle_command(unblock_user, BotManager().unblock_user, "用户 {} 已解封")
+
+
+block_group = plugin.on_command("封禁群", "阻止目标群所有人使用 ATRI")
+handle_command(block_group, BotManager().block_group, "群 {} 危！")
+
+
+unblock_group = plugin.on_command("解封群", "对被阻止的群解封")
+handle_command(unblock_group, BotManager().unblock_group, "群 {} 已解封")
+
+
+toggle_global_service = plugin.on_command("全局控制", "全局禁用/启用某一服务")
+handle_command(
+    toggle_global_service,
+    BotManager().toggle_global_service,
+    "服务 {} 已全局",
 )
 
 
-@user_block_service.handle()
-async def _user_block_service(event: MessageEvent):
-    msg = str(event.message).strip()
-    pattern = r"对用户(.*?)禁用(.*)"
-    reg = re.findall(pattern, msg)
-    aim_user = reg[0]
-    aim_service = reg[1]
-
-    is_ok = Manage().control_user_service(aim_service, aim_user, False)
-    if not is_ok:
-        await user_block_service.finish("禁用失败...请检查服务名是否正确")
-    await user_block_service.finish(f"完成～已禁止用户 {aim_user} 使用 {aim_service}")
-
-
-user_unblock_service = Manage().on_regex(
-    r"对用户(.*?)启用(.*)", "针对某一用户启用服务", permission=SUPERUSER
+toggle_group_service = plugin.on_command("控制", "针对所在群禁用/启用某一服务", permission=ADMIN)
+handle_command(
+    toggle_group_service,
+    BotManager().toggle_group_service,
+    "服务 {} 已针对本群",
 )
 
 
-@user_unblock_service.handle()
-async def _user_unblock_service(event: MessageEvent):
-    msg = str(event.message).strip()
-    pattern = r"对用户(.*?)启用(.*)"
-    reg = re.findall(pattern, msg)
-    aim_user = reg[0]
-    aim_service = reg[1]
-
-    is_ok = Manage().control_user_service(aim_service, aim_user, True)
-    if not is_ok:
-        await user_unblock_service.finish("启用失败...请检查服务名是否正确，或者此人并不存在于名单中")
-    await user_unblock_service.finish(f"完成～已允许用户 {aim_user} 使用 {aim_service}")
-
-
-group_block_service = Manage().on_command(
-    "禁用", "针对所在群禁用某服务", permission=SUPERUSER | GROUP_OWNER | GROUP_ADMIN
+track_error = plugin.on_command("追踪", "根据ID获取对应报错信息", aliases={"/track"})
+handle_command(
+    track_error,
+    BotManager().track_error,
+    "{}",
 )
 
 
-@group_block_service.handle()
-async def _ready_group_block_service(
-    matcher: Matcher, event: GroupMessageEvent, args: Message = CommandArg()
-):
-    msg = str(event.message).strip()
-    if msg:
-        matcher.set_arg("group_block_service", args)
+apply_friend_req = plugin.on_command("同意好友", "根据申请码同意对应好友申请")
+handle_command(apply_friend_req, BotManager().apply_friend_req, "已同意该申请")
 
 
-@group_block_service.got("group_block_service", "阿...是哪个服务呢")
-async def _deal_group_block_service(
-    event: GroupMessageEvent, aim_service: str = ArgPlainText("group_block_service")
-):
-    group_id = str(event.group_id)
-    quit_list = ["算了", "罢了"]
-    if aim_service in quit_list:
-        await group_block_service.finish("好吧...")
-
-    is_ok = Manage().control_group_service(aim_service, group_id, False)
-    if not is_ok:
-        await group_block_service.finish("禁用失败...请检查服务名是否输入正确")
-    await group_block_service.finish(f"完成！～已禁止本群使用服务：{aim_service}")
+reject_friend_req = plugin.on_command("拒绝好友", "根据申请码拒绝对应好友申请")
+handle_command(reject_friend_req, BotManager().reject_friend_req, "已拒绝该申请")
 
 
-group_unblock_service = Manage().on_command(
-    "启用", "针对所在群启用某服务", permission=SUPERUSER | GROUP_OWNER | GROUP_ADMIN
-)
+apply_group_req = plugin.on_command("同意邀请", "根据申请码同意对应群邀请")
+handle_command(apply_group_req, BotManager().apply_group_req, "已同意该邀请")
 
 
-@group_unblock_service.handle()
-async def _ready_group_unblock_service(
-    matcher: Matcher, event: GroupMessageEvent, args: Message = CommandArg()
-):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("group_unblock_service", args)
+reject_group_req = plugin.on_command("拒绝邀请", "根据申请码拒绝对应群邀请")
+handle_command(reject_group_req, BotManager().reject_group_req, "已拒绝该邀请")
 
 
-@group_unblock_service.got("group_unblock_service", "阿...是哪个服务呢")
-async def _deal_group_unblock_service(
-    event: GroupMessageEvent, aim_service: str = ArgPlainText("group_unblock_service")
-):
-    group_id = str(event.group_id)
-    quit_list = ["算了", "罢了"]
-    if aim_service in quit_list:
-        await group_unblock_service.finish("好吧...")
-
-    is_ok = Manage().control_group_service(aim_service, group_id, True)
-    if not is_ok:
-        await group_unblock_service.finish("启用失败...请检查服务名是否输入正确，或群不存在于名单中")
-    await group_unblock_service.finish(f"完成！～已允许本群使用服务：{aim_service}")
+toggle_user_service = plugin.on_regex(r"对用户(.*?)(启用|禁用)(.*)", "针对单一用户禁用/启用某一服务")
 
 
-get_friend_add_list = Manage().on_command("获取好友申请", "获取好友申请列表", permission=SUPERUSER)
+@toggle_user_service.handle()
+async def _(event: MessageEvent):
+    msg = str(event.get_message()).strip()
+    reg = re.findall("对用户(.*?)(启用|禁用)(.*)", msg)[0]
+    target_user = reg[0]
+    target_service = reg[2]
+
+    try:
+        result = BotManager().toggle_user_service(target_service, target_user)
+    except Exception as e:
+        await toggle_user_service.finish(f"操作失败，原因：{str(e)}")
+    await toggle_user_service.finish(
+        f"已{'允许' if result else '禁止'}用户 {target_user} 使用 {target_service}"
+    )
 
 
-@get_friend_add_list.handle()
-async def _get_friend_add_list():
-    data = Manage().load_friend_apply_list()
-    temp_list = list()
-    for i in data:
+friend_req = plugin.on_request("好友申请", "好友申请检测")
+
+
+@friend_req.handle()
+async def _(event: FriendRequestEvent):
+    apply_code = event.flag
+    user_id = event.get_user_id()
+    apply_comment = event.comment
+    now_time = str(datetime.now().timestamp())
+
+    raw_data = await BotManager().load_friend_req()
+    data = raw_data.dict()
+    data["data"][apply_code] = RequestInfo(
+        user_id=user_id,
+        comment=apply_comment,
+        time=now_time,
+    ).dict()
+    await BotManager().store_friend_req(data)
+
+    result = (
+        MessageBuilder("咱收到一条好友请求！")
+        .text(f"请求人：{user_id}")
+        .text(f"申请信息：{apply_comment}")
+        .text(f"申请码：{apply_code}")
+        .text("Tip：好友申请列表")
+    )
+    await plugin.send_to_master(result)
+
+
+group_req = plugin.on_request("应邀入群", "应邀入群检测")
+
+
+@group_req.handle()
+async def _(event: GroupRequestEvent):
+    if event.sub_type != "invite":
+        return
+
+    apply_code = event.flag
+    target_group = event.group_id
+    user_id = event.get_user_id()
+    apply_comment = event.comment
+    now_time = str(datetime.now().timestamp())
+
+    raw_data = await BotManager().load_group_req()
+    data = raw_data.dict()
+    data["data"][apply_code] = RequestInfo(
+        user_id=user_id,
+        comment=apply_comment + f"(目标群{target_group})",
+        time=now_time,
+    ).dict()
+    await BotManager().store_group_req(data)
+
+    result = (
+        MessageBuilder("咱收到一条应邀入群请求！")
+        .text(f"申请人：{user_id}")
+        .text(f"申请信息：{apply_comment}")
+        .text(f"申请码：{apply_code}")
+        .text(f"目标群：{target_group}")
+        .text("Tip：群邀请列表")
+    )
+    await plugin.send_to_master(result)
+
+
+get_friend_req_list = plugin.on_command("好友申请列表", "获取好友申请列表")
+
+
+@get_friend_req_list.handle()
+async def _():
+    data = await BotManager().load_friend_req()
+    if not data:
+        await get_friend_req_list.finish("当前没有申请")
+
+    cache_list = list()
+    for i in data.data:
         apply_code = i
-        apply_user = data[i]["user_id"]
-        apply_comment = data[i]["comment"]
-        temp_msg = f"{apply_user} | {apply_comment} | {apply_code}"
-        temp_list.append(temp_msg)
+        apply_data = data.data[i]
+        apply_user = apply_data.user_id
+        apply_comment = apply_data.comment
+        cache_list.append(f"{apply_user} | {apply_comment} | {apply_code}")
 
-    msg0 = "申请人ID | 申请信息 | 申请码\n" + "\n".join(map(str, temp_list))
-    msg1 = msg0 + "\nTip: 使用 同意/拒绝好友 [申请码] 以决定"
-    await get_friend_add_list.finish(msg1)
-
-
-approve_friend_add = Manage().on_command("同意好友", "同意好友申请", permission=SUPERUSER)
-
-
-@approve_friend_add.handle()
-async def _ready_approve_friend_add(
-    matcher: Matcher, event: MessageEvent, args: Message = CommandArg()
-):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("approve_friend_add", args)
+    result = (
+        "申请人ID | 申请信息 | 申请码\n"
+        + "\n".join(map(str, cache_list))
+        + "\nTip: 使用 同意/拒绝好友 [申请码] 以决定"
+    )
+    await get_friend_req_list.finish(result)
 
 
-@approve_friend_add.got("approve_friend_add", "申请码GKD!")
-async def _deal_approve_friend_add(
-    bot: Bot, apply_code: str = ArgPlainText("approve_friend_add")
-):
-    quit_list = ["算了", "罢了"]
-    if apply_code in quit_list:
-        await approve_friend_add.finish("好吧...")
-
-    try:
-        await bot.set_friend_add_request(flag=apply_code, approve=True)
-    except BaseException:
-        await approve_friend_add.finish("同意失败...尝试下手动？")
-    data = Manage().load_friend_apply_list()
-    data.pop(apply_code)
-    Manage().save_friend_apply_list(data)
-    await approve_friend_add.finish("好欸！申请已通过！")
+get_group_req_list = plugin.on_command("群邀请列表", "获取群邀请列表")
 
 
-refuse_friend_add = Manage().on_command("拒绝好友", "拒绝好友申请", permission=SUPERUSER)
+@get_group_req_list.handle()
+async def _():
+    data = await BotManager().load_group_req()
+    if not data:
+        await get_group_req_list.finish("当前没有申请")
 
-
-@refuse_friend_add.handle()
-async def _ready_refuse_friend_add(
-    matcher: Matcher, event: MessageEvent, args: Message = CommandArg()
-):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("refuse_friend_add", args)
-
-
-@refuse_friend_add.got("refuse_friend_add", "申请码GKD!")
-async def _deal_refuse_friend_add(
-    bot: Bot, apply_code: str = ArgPlainText("refuse_friend_add")
-):
-    quit_list = ["算了", "罢了"]
-    if apply_code in quit_list:
-        await refuse_friend_add.finish("好吧...")
-
-    try:
-        await bot.set_friend_add_request(flag=apply_code, approve=False)
-    except BaseException:
-        await refuse_friend_add.finish("拒绝失败...尝试下手动？")
-    data = Manage().load_friend_apply_list()
-    data.pop(apply_code)
-    Manage().save_friend_apply_list(data)
-    await refuse_friend_add.finish("已拒绝！")
-
-
-get_group_invite_list = Manage().on_command("获取邀请列表", "获取群邀请列表", permission=SUPERUSER)
-
-
-@get_group_invite_list.handle()
-async def _get_group_invite_list():
-    data = Manage().load_invite_apply_list()
-    temp_list = list()
-    for i in data:
+    cache_list = list()
+    for i in data.data:
         apply_code = i
-        apply_user = data[i]["user_id"]
-        apply_comment = data[i]["comment"]
-        temp_msg = f"{apply_user} | {apply_comment} | {apply_code}"
-        temp_list.append(temp_msg)
+        apply_data = data.data[i]
+        apply_user = apply_data.user_id
+        apply_comment = apply_data.comment
+        cache_list.append(f"{apply_user} | {apply_comment} | {apply_code}")
 
-    msg0 = "申请人ID | 申请信息 | 申请码\n" + "\n".join(map(str, temp_list))
-    msg1 = msg0 + "\nTip: 使用 同意/拒绝邀请 [申请码] 以决定"
-    await get_friend_add_list.finish(msg1)
-
-
-approve_group_invite = Manage().on_command("同意邀请", "同意群聊邀请", permission=SUPERUSER)
-
-
-@approve_group_invite.handle()
-async def _ready_approve_group_invite(
-    matcher: Matcher, event: MessageEvent, args: Message = CommandArg()
-):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("approve_group_invite", args)
+    result = (
+        "申请人ID | 申请信息 | 申请码\n"
+        + "\n".join(map(str, cache_list))
+        + "\nTip: 使用 同意/拒绝邀请 [申请码] 以决定"
+    )
+    await get_group_req_list.finish(result)
 
 
-@approve_group_invite.got("approve_group_invite", "申请码GKD!")
-async def _deal_approve_group_invite(
-    bot: Bot, apply_code: str = ArgPlainText("approve_group_invite")
-):
-    quit_list = ["算了", "罢了"]
-    if apply_code in quit_list:
-        await approve_group_invite.finish("好吧...")
+recall_msg = plugin.on_command("撤回", "撤回 ATRI 已发送的信息", to_bot())
 
+
+@recall_msg.handle()
+async def _recall_msg(bot: Bot, event: MessageEvent):
     try:
-        await bot.set_group_add_request(
-            flag=apply_code, sub_type="invite", approve=True
-        )
-    except BaseException:
-        await approve_group_invite.finish("同意失败...尝试下手动？")
-    data = Manage().load_invite_apply_list()
-    data.pop(apply_code)
-    Manage().save_invite_apply_list(data)
-    await approve_group_invite.finish("好欸！申请已通过！")
+        recall_id = event.reply.message_id  # type: ignore
+    except Exception:
+        await recall_msg.finish("无法获取必要信息...没法撤回惹...")
+
+    await bot.delete_msg(message_id=recall_id)
 
 
-refuse_group_invite = Manage().on_command("拒绝邀请", "拒绝群聊邀请", permission=SUPERUSER)
+add_nonebot_plugin = plugin.on_command("添加插件", "添加来自 NoneBot 商店的插件")
 
 
-@refuse_group_invite.handle()
-async def _ready_refuse_group_invite(
-    matcher: Matcher, event: MessageEvent, args: Message = CommandArg()
+@add_nonebot_plugin.got("plugin_name", "插件名呢?")
+async def _(plugin_name: str = ArgPlainText("plugin_name")):
+    nbm = NonebotPluginManager().assign_plugin(plugin_name)
+
+    if nbm.plugin_is_exist(True):
+        await add_nonebot_plugin.finish("该插件已存在")
+
+    if not (plugin_info := nbm.get_plugin_info()):
+        await add_nonebot_plugin.finish("未找到该插件")
+
+    msg = (
+        MessageBuilder(f"[{plugin_name}]")
+        .text(f"名称: {plugin_info.name}")
+        .text(f"说明: {plugin_info.desc}")
+        .text(f"作者: {plugin_info.author}")
+        .text(f"插件主页: {plugin_info.homepage}")
+        .text(f"{str() if plugin_info.is_official else '[!] 非'}官方插件")
+    )
+    await add_nonebot_plugin.send(msg)
+
+
+@add_nonebot_plugin.got("att", "是否安装(y/n)")
+async def _(
+    att: str = ArgPlainText("att"), plugin_name: str = ArgPlainText("plugin_name")
 ):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("refuse_group_invite", args)
+    if att not in ["y", "Y", "是"]:
+        await add_nonebot_plugin.finish("反悔了呢")
+
+    nbm = NonebotPluginManager().assign_plugin(plugin_name)
+    result = nbm.add_plugin()
+    await add_nonebot_plugin.finish(result)
 
 
-@refuse_group_invite.got("refuse_group_invite", "申请码GKD!")
-async def _deal_refuse_group_invite(
-    bot: Bot, apply_code: str = ArgPlainText("refuse_group_invite")
+remove_nonebot_plugin = plugin.on_command(
+    "移除插件", "移除来自 NoneBot 商店的插件", aliases={"删除插件", "卸载插件"}
+)
+
+
+@remove_nonebot_plugin.got("plugin_name", "要移除的插件名呢?")
+@remove_nonebot_plugin.got("att", "确定吗(y/n)")
+async def _(
+    att: str = ArgPlainText("att"), plugin_name: str = ArgPlainText("plugin_name")
 ):
-    quit_list = ["算了", "罢了"]
-    if apply_code in quit_list:
-        await refuse_group_invite.finish("好吧...")
+    if att not in ["y", "Y", "是"]:
+        await remove_nonebot_plugin.finish("反悔了呢")
 
-    try:
-        await bot.set_group_add_request(
-            flag=apply_code, sub_type="invite", approve=False
-        )
-    except BaseException:
-        await refuse_group_invite.finish("拒绝失败...（可能是小群免验证）尝试下手动？")
-    data = Manage().load_invite_apply_list()
-    data.pop(apply_code)
-    Manage().save_invite_apply_list(data)
-    await refuse_group_invite.finish("已拒绝！")
+    nbm = NonebotPluginManager().assign_plugin(plugin_name)
+    result = nbm.remove_plugin()
+    await remove_nonebot_plugin.finish(result)
 
 
-track_error = Manage().on_command("追踪", "获取报错信息，传入追踪码", aliases={"/track"})
+upgrade_nonebot_plugin = plugin.on_command(
+    "更新插件", "更新来自 NoneBot 商店的插件", aliases={"升级插件"}
+)
 
 
-@track_error.handle()
-async def _track_error(matcher: Matcher, args: Message = CommandArg()):
-    msg = args.extract_plain_text()
-    if msg:
-        matcher.set_arg("track_code", args)
+@upgrade_nonebot_plugin.handle()
+async def _(event: MessageEvent):
+    result = NonebotPluginManager().upgrade_plugin()
+    if not result:
+        await upgrade_nonebot_plugin.finish("当前没有插件可更新...")
+
+    msg = "更新完成~! 成功更新:" + "\n".join(map(str, result))
+    await upgrade_nonebot_plugin.finish(msg)
 
 
-@track_error.got("track_code", "报错码 速速")
-async def _(track_code: str = ArgPlainText("track_code")):
-    quit_list = ["算了", "罢了"]
-    if track_code in quit_list:
-        await track_error.finish("好吧...")
+from ATRI import driver
+from ATRI.utils.apscheduler import scheduler
 
-    repo = await Manage().track_error(track_code)
-    await track_error.finish(repo)
+from .listener import init_listener
+
+driver().on_startup(init_listener)
+driver().on_startup(NonebotPluginManager().get_store_list)
+driver().on_startup(NonebotPluginManager().load_plugin)
+scheduler.scheduled_job(
+    "interval",
+    name="NoneBot 商店刷新",
+    hours=1,
+    max_instances=3,
+    misfire_grace_time=60,
+)(NonebotPluginManager().get_store_list)

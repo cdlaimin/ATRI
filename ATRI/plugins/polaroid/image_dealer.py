@@ -5,9 +5,9 @@ from datetime import datetime
 from PIL import Image, ImageFont, ImageDraw
 
 
-POLAROID_DIR = Path(".") / "data" / "database" / "polaroid"
+POLAROID_DIR = Path(".") / "data" / "plugins" / "polaroid"
 TEMP_PATH = Path(".") / "data" / "temp"
-POLAROID_DIR.mkdir(exist_ok=True)
+POLAROID_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def image_dealer(user_img: bytes, user_id):

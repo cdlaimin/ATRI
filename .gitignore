@@ -147,3 +147,8 @@ dmypy.json
 
 # for MacOS
 .DS_Store
+
+# configs
+config.yml
+nonebot_plugins.json
+.env.prod

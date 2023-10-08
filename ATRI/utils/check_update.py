@@ -1,4 +1,4 @@
-from ATRI.exceptions import RequestError
+from ATRI.log import log
 
 from . import request
 
@@ -22,13 +22,15 @@ class CheckUpdate:
     async def show_latest_commit_info(cls) -> str:
         try:
             data = await cls._get_commits_info()
-        except RequestError:
-            raise RequestError("Getting commit info timeout...")
+        except Exception:
+            log.error("获取最新推送信息失败...")
+            return str()
 
         try:
             commit_data: dict = data[0]
         except Exception:
-            raise Exception("GitHub has been error!!!")
+            log.error("GitHub 数据结构已更改, 请前往仓库提交 Issue.")
+            return str()
 
         c_info = commit_data["commit"]
         c_msg = c_info["message"]
@@ -41,13 +43,15 @@ class CheckUpdate:
     async def show_latest_version(cls) -> tuple:
         try:
             data = await cls._get_release_info()
-        except RequestError:
-            raise RequestError("Getting release list timeout...")
+        except Exception:
+            log.error("获取发布列表失败...")
+            return str(), str()
 
         try:
             release_data: dict = data[0]
         except Exception:
-            raise Exception("GitHub has been error!!!")
+            log.error("GitHub 数据结构已更改, 请前往仓库提交 Issue.")
+            return str(), str()
 
         l_v = release_data["tag_name"]
         l_v_t = release_data["published_at"]

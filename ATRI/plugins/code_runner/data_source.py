@@ -1,6 +1,5 @@
-from ATRI.rule import is_in_service
-from ATRI.service import Service
 from ATRI.utils import request
+from ATRI.message import MessageBuilder
 from ATRI.exceptions import RequestError
 
 
@@ -34,20 +33,16 @@ SUPPORTED_LANGUAGES = {
 }
 
 
-class CodeRunner(Service):
-    def __init__(self):
-        Service.__init__(
-            self, "在线跑代码", "在线跑代码", rule=is_in_service("在线跑代码"), main_cmd="/code"
-        )
-
+class CodeRunner:
     @staticmethod
     def help() -> str:
         return (
-            "/code {语言}\n"
-            "{代码}\n"
-            "For example:\n"
-            "/code python\n"
-            "print('hello world')"
+            MessageBuilder("/code {语言}")
+            .text("{代码}")
+            .text("For example:")
+            .text("/code python")
+            .text("print('hello world')")
+            .done()
         )
 
     @staticmethod
@@ -64,7 +59,7 @@ class CodeRunner(Service):
 
         try:
             _ = args[1]
-        except:
+        except Exception:
             return "请检查键入内容...需要帮助：/code help"
 
         lang = args[0].replace("\r", "")
@@ -90,7 +85,7 @@ class CodeRunner(Service):
 
         try:
             res = await request.post(url, json=js)
-        except RequestError:
+        except Exception:
             raise RequestError("Request failed!")
 
         payload = res.json()

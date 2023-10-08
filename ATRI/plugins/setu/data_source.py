@@ -1,83 +1,77 @@
-import asyncio
-from nonebot.adapters.onebot.v11 import Bot, MessageSegment
+import re
+from typing import Tuple
+from nonebot.adapters.onebot.v11 import MessageSegment
 
-from ATRI.service import Service
-from ATRI.rule import is_in_service
+from ATRI import conf
 from ATRI.utils import request
-from ATRI.config import Setu as ST
-from .tf_dealer import detect_image
+from ATRI.exceptions import RequestError
+
+from .models import LoliconResponse, SetuInfo
+from .nsfw_checker import detect_image, init_model
 
 
-LOLICON_URL = "https://api.lolicon.app/setu/v2"
-DEFAULT_SETU = (
-    "https://i.pixiv.cat/img-original/img/2021/02/28/22/44/49/88124144_p0.jpg"
-)
+_LOLICON_URL = "https://api.lolicon.app/setu/v2"
 
 
-class Setu(Service):
-    def __init__(self):
-        Service.__init__(self, "涩图", "hso!", rule=is_in_service("涩图"))
-
-    @staticmethod
-    def _use_proxy(url: str) -> str:
-        if ST.reverse_proxy:
-            return url.replace("i.pixiv.cat", ST.reverse_proxy_domain)
-        else:
-            return url
+class Setu:
+    def __init__(self, url: str):
+        self.url = url
 
     @classmethod
-    async def random_setu(cls) -> tuple:
+    async def new(cls, tag: str = str()) -> Tuple[MessageSegment, SetuInfo]:
+        """new 一个涩图
+
+        Args:
+            tag (str, optional): 附加 tag, 默认无
+
+        Raises:
+            RequestError: 涩图请求失败
+
+        Returns:
+            Tuple[MessageSegment, dict]: 涩图本体, 涩图信息
         """
-        随机涩图.
-        """
-        res = await request.get(LOLICON_URL)
-        data: dict = res.json()
-        temp_data: dict = data.get("data", list())
-        if not temp_data:
-            return "涩批爬", None
+        url = _LOLICON_URL + (f"?tag={tag}" if tag else str())
+        try:
+            req = await request.get(url)
+        except Exception:
+            raise RequestError("setu: 请求失败")
 
-        data: dict = temp_data[0]
-        title = data.get("title", "木陰のねこ")
-        p_id = data.get("pid", 88124144)
-        url: str = data["urls"].get("original", "ignore")
+        raw_data = LoliconResponse.parse_obj(req.json()).data
+        if not raw_data:
+            return MessageSegment.text(str()), SetuInfo(
+                title=str(), pid=int(), url=str()
+            )
+        data = raw_data[0]
+        title = data.title
+        pid = data.pid
+        url = data.urls.original
 
-        setu = MessageSegment.image(cls._use_proxy(url), timeout=114514)
-        repo = f"Title: {title}\nPid: {p_id}"
-        return repo, setu
+        if conf.Setu.reverse_proxy:
+            patt = "://(.*?)/"
+            domain = re.findall(patt, url)[0]
+            setu = url.replace(domain, conf.Setu.reverse_proxy_domain)
 
-    @classmethod
-    async def tag_setu(cls, tag: str) -> tuple:
-        """
-        指定tag涩图.
-        """
-        url = LOLICON_URL + f"?tag={tag}"
-        res = await request.get(url)
-        data: dict = res.json()
-
-        temp_data: dict = data.get("data", list())
-        if not temp_data:
-            return f"没有 {tag} 的涩图呢...", None
-
-        data = temp_data[0]
-        title = data.get("title", "木陰のねこ")
-        p_id = data.get("pid", 88124144)
-        url = data["urls"].get(
-            "original",
-            cls._use_proxy(DEFAULT_SETU),
+        setu_data = SetuInfo(title=title, pid=pid, url=url)
+        setu = MessageSegment.image(
+            file=url,
+            timeout=114514,
         )
-        setu = MessageSegment.image(url, timeout=114514)
-        repo = f"Title: {title}\nPid: {p_id}"
-        return repo, setu
 
-    @staticmethod
-    async def detecter(url: str, file_size: int) -> list:
-        """
-        涩值检测.
-        """
-        data = await detect_image(url, file_size)
-        return data
+        return setu, setu_data
 
-    @staticmethod
-    async def async_recall(bot: Bot, event_id):
-        await asyncio.sleep(30)
-        await bot.delete_msg(message_id=event_id)
+    async def detecter(self, max_size: int, disab_gif: bool) -> float:
+        """图片涩值检测
+
+        Args:
+            max_size (int): 检测文件大小限制
+            disab_gif (bool): 是否检测动图
+
+        Returns:
+            float: 百分比涩值
+        """
+        return await detect_image(self.url, max_size, disab_gif)
+
+
+from ATRI import driver
+
+driver().on_startup(init_model)

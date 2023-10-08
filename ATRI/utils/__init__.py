@@ -1,47 +1,60 @@
 import os
 import re
-import pytz
-import yaml
+import json
+import string
+import asyncio
 import aiofiles
-import time
 from pathlib import Path
+from random import sample
 from datetime import datetime
 from PIL import Image, ImageFile
+from collections import defaultdict
 from aiofiles.threadpool.text import AsyncTextIOWrapper
 
 
-def timestamp2datetimestr(timestamp: int) -> str:
-    format = "%Y-%m-%d %H:%M:%S"
-    tt = time.localtime(timestamp)
-    dt = time.strftime(format, tt)
-    return dt
+def gen_random_str(k: int) -> str:
+    return str().join(sample(string.ascii_letters + string.digits, k))
 
 
-def timestamp2datetime(value: int) -> datetime:
-    tz = pytz.timezone("Asia/Shanghai")
-    return datetime.fromtimestamp(value, tz=tz)
+class TimeDealer:
+    def __init__(self, timestamp: float, timezone):
+        """对时间进行处理
 
+        Args:
+            timestamp (float): 时间戳
+            timezone (_type_): 时区 (datetime.timezone)
+        """
+        self.timestamp = timestamp
+        self.timezone = timezone
 
-def now_time() -> float:
-    """获取当前时间的整数."""
-    now_ = datetime.now()
-    hour = now_.hour
-    minute = now_.minute
-    now = hour + minute / 60
-    return now
+    def to_str(self, format: str = "%Y-%m-%d %H:%M:%S") -> str:
+        """将时间戳转换为格式化形式
 
+        Args:
+            format: 时间格式. 默认: `"%Y-%m-%d %H:%M:%S"`.
 
-def load_yml(file: Path, encoding="utf-8") -> dict:
-    """打开 yaml 格式的文件."""
-    with open(file, "r", encoding=encoding) as f:
-        data = yaml.safe_load(f)
-    return data
+        Returns:
+            str: 格式化后的时间戳
+        """
+        return datetime.fromtimestamp(self.timestamp, self.timezone).strftime(format)
 
+    def to_datetime(self) -> datetime:
+        """将时间戳转化成 datetime 类型
 
-def safe_string(value):
-    if isinstance(value, bytes):
-        return value.decode()
-    return str(value)
+        Returns:
+            datetime: 转换后的 datetime 类型
+        """
+        return datetime.fromtimestamp(self.timestamp, self.timezone)
+
+    def int_now(self) -> float:
+        """将时间戳转换为一天中整数的时间.
+        e.g. 9:30 > 9.50
+
+        Returns:
+            float: 转换后的整数时间
+        """
+        time = datetime.fromtimestamp(self.timestamp, self.timezone)
+        return time.hour + time.minute / 60
 
 
 class ListDealer:
@@ -105,25 +118,32 @@ class MessageChecker:
 
 class FileDealer:
     """
-    打开文件
+    异步方式操作文件
     """
 
     def __init__(self, path: Path, encoding: str = "utf-8"):
         self.path = path
         self.encoding = encoding
 
-    async def write(self, path: Path, content):
+    async def write(self, content):
         try:
-            async with aiofiles.open(path, "w", encoding=self.encoding) as target:
+            async with aiofiles.open(self.path, "w", encoding=self.encoding) as target:
                 await target.write(content)
         except Exception:
-            raise Exception(f"Writing file({path}) failed!")
+            raise Exception(f"Writing file ({self.path}) failed!")
+
+    async def write_json(self, content):
+        try:
+            async with aiofiles.open(self.path, "w", encoding=self.encoding) as target:
+                await target.write(json.dumps(content))
+        except Exception:
+            raise Exception(f"Writing file ({self.path}) failed!")
 
     async def _reader(self) -> AsyncTextIOWrapper:
         try:
             tar = await aiofiles.open(self.path, "r", encoding=self.encoding)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"File({self.path}) not find!")
+        except Exception:
+            raise FileNotFoundError(f"File ({self.path}) not find!")
         return tar
 
     async def read(self):
@@ -141,6 +161,9 @@ class FileDealer:
     async def readtable(self):
         tar = await self._reader()
         return tar.readable()
+
+    def json(self) -> dict:
+        return json.loads(self.path.read_bytes())
 
 
 class ImageDealer:
@@ -210,3 +233,33 @@ class Translate:
                 output_str_list.append(self.text[i])
 
         return "".join(output_str_list)
+
+
+class Limiter:
+    def __init__(self, max_count: int, down_time: float):
+        """冷却设置
+
+        Args:
+            max_count (int): 最大次数
+            down_time (float): 到达次数后的冷却时间
+        """
+        self.max_count = max_count
+        self.down_time = down_time
+        self.count = defaultdict(int)
+
+    def check(self, key: str) -> bool:
+        if self.count[key] >= self.max_count:
+            loop = asyncio.get_running_loop()
+            loop.call_later(self.down_time, self.reset)
+            return False
+
+        return True
+
+    def increase(self, key: str, times: int = 1) -> None:
+        self.count[key] += times
+
+    def reset(self, key: str) -> None:
+        self.count[key] = 0
+
+    def get_times(self, key: str) -> int:
+        return self.count[key]

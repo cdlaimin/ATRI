@@ -1,8 +1,6 @@
 import re
 
-from ATRI.service import Service
 from ATRI.utils import request
-from ATRI.rule import is_in_service
 
 
 URL = "https://api.kyomotoi.moe/api/bilibili/v3/video_info?aid="
@@ -16,17 +14,12 @@ xor = 177451812
 add = 8728348608
 
 
-class Applet(Service):
-    def __init__(self):
-        Service.__init__(
-            self, "小程序处理", "啥b腾讯小程序给👴爪巴\n目前只整了b站的", rule=is_in_service("小程序处理")
-        )
-
+class Applet:
     @staticmethod
     def _bv_dec(x) -> str:
         r = 0
         for i in range(6):
-            r += tr[x[s[i]]] * 58 ** i
+            r += tr[x[s[i]]] * 58**i
         return str((r - add) ^ xor)
 
     @staticmethod
@@ -34,7 +27,7 @@ class Applet(Service):
         x = (x ^ xor) + add
         r = list("BV1  4 1 7  ")
         for i in range(6):
-            r[s[i]] = table[x // 58 ** i % 58]
+            r[s[i]] = table[x // 58**i % 58]
         return "".join(r)
 
     @staticmethod

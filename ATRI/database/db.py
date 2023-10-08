@@ -1,82 +1,79 @@
 from pathlib import Path
 from tortoise import Tortoise
-from nonebot import get_driver
 
-from ATRI.database import models
-
-
-DB_DIR = Path(".") / "data" / "database" / "sql"
-DB_DIR.mkdir(exist_ok=True)
+from ATRI.log import log
 
 
-# 关于数据库的操作类，只实现与数据库有关的CRUD
-# 请不要把业务逻辑写进去
-class DB:
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-    async def init(self):
-        from ATRI.database import models
-
-        await Tortoise.init(
-            db_url=f"sqlite://{DB_DIR}/db.sqlite3",
-            modules={"models": [locals()["models"]]},
-        )
-        # Generate the schema
-        await Tortoise.generate_schemas()
-
-    async def add_subscription(self, uid: int, groupid: int) -> bool:
-        try:
-            _ = await models.Subscription.create(uid=uid, groupid=groupid)
-            return True
-        except:
-            return False
-
-    async def get_all_subscriptions_by_gid(self, groupid: int) -> list:
-        try:
-            subs = await self.get_subscriptions(query_map={"groupid": groupid})
-            return subs
-        except:
-            return []
-
-    async def remove_subscription(self, query_map: dict) -> bool:
-        try:
-            ret = await models.Subscription.filter(**query_map).delete()
-            return True
-        except:
-            return False
-
-    async def get_subscriptions(self, query_map: dict) -> list:
-        try:
-            ret = await models.Subscription.filter(**query_map)
-            return ret
-        except:
-            return []
-
-    async def get_all_subscriptions(self) -> list:
-        try:
-            ret = await models.Subscription.all()
-            return ret
-        except:
-            return []
-
-    async def update_subscriptions_by_uid(self, uid: int, update_map: dict) -> bool:
-        try:
-            # why use ** ?
-            # Reference: https://stackoverflow.com/questions/5710391/converting-python-dict-to-kwargs
-            _ = await models.Subscription.filter(uid=uid).update(**update_map)
-            return True
-        except:
-            return False
+# 临时的实现，寻求更好的方式！欢迎pr
 
 
-async def init():
-    async with DB() as db:
-        await db.init()
+DB_DIR = Path(".") / "data" / "sql"
+DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
-driver = get_driver()
-driver.on_startup(init)
+async def run():
+    from ATRI.database import models
+
+    await Tortoise.init(
+        {
+            "connections": {
+                "bilibili": {
+                    "engine": "tortoise.backends.sqlite",
+                    "credentials": {"file_path": f"{DB_DIR}/bilibili.sqlite3"},
+                },
+                "twitter": {
+                    "engine": "tortoise.backends.sqlite",
+                    "credentials": {"file_path": f"{DB_DIR}/twitter.sqlite3"},
+                },
+                "ts": {
+                    "engine": "tortoise.backends.sqlite",
+                    "credentials": {"file_path": f"{DB_DIR}/thesaurusstoragor.sqlite3"},
+                },
+                "tal": {
+                    "engine": "tortoise.backends.sqlite",
+                    "credentials": {
+                        "file_path": f"{DB_DIR}/thesaurusauditlist.sqlite3"
+                    },
+                },
+                "rrs": {
+                    "engine": "tortoise.backends.sqlite",
+                    "credentials": {
+                        "file_path": f"{DB_DIR}/rssrsshubsubscription.sqlite3"
+                    },
+                },
+                "rms": {
+                    "engine": "tortoise.backends.sqlite",
+                    "credentials": {
+                        "file_path": f"{DB_DIR}/rssmikananisubscription.sqlite3"
+                    },
+                },
+            },
+            "apps": {
+                "bilibili": {
+                    "models": [locals()["models"]],
+                    "default_connection": "bilibili",
+                },
+                "twitter": {
+                    "models": [locals()["models"]],
+                    "default_connection": "twitter",
+                },
+                "ts": {"models": [locals()["models"]], "default_connection": "ts"},
+                "tal": {"models": [locals()["models"]], "default_connection": "tal"},
+                "rrs": {"models": [locals()["models"]], "default_connection": "rrs"},
+                "rms": {"models": [locals()["models"]], "default_connection": "rms"},
+            },
+        }
+    )
+    await Tortoise.generate_schemas()
+
+
+async def init_database():
+    log.info("正在初始化数据库...")
+    await run()
+    log.success("数据库初始化完成")
+
+
+async def close_database_connection():
+    log.info("正在关闭数据库连接...")
+    await Tortoise.close_connections()
+    log.info("数据库成功关闭")
